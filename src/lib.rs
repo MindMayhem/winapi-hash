@@ -1,12 +1,12 @@
 /*!
 This crate is a simple implementation of Windows API hashing using
-some expiremental features such as [generic_const_exprs](https://github.com/rust-lang/rust/issues/76560) 
+some expiremental features such as [generic_const_exprs](https://github.com/rust-lang/rust/issues/76560)
 and [adt_const_params](https://github.com/rust-lang/rust/issues/44580).
 It should be noted that this crate is very unsafe and should be used with
 extreme caution or just as a proof of concept.
 
 There are many good resources outlining the concept behind API hashing such as
-on [ired.team](https://www.ired.team/offensive-security/defense-evasion/windows-api-hashing-in-malware), 
+on [ired.team](https://www.ired.team/offensive-security/defense-evasion/windows-api-hashing-in-malware),
 or on [0xf0x's blog](https://neil-fox.github.io/Anti-analysis-using-api-hashing/).
 */
 
@@ -17,12 +17,12 @@ or on [0xf0x's blog](https://neil-fox.github.io/Anti-analysis-using-api-hashing/
 #![allow(dead_code)]
 #![allow(incomplete_features)]
 #![warn(missing_docs)]
+#![no_std]
 //#![warn(rustdoc::missing_doc_code_examples)]
 
 pub use winapi;
 mod util;
 
-use crate::util::wide::*;
 use winapi::{
     shared::{basetsd::ULONG_PTR, minwindef::HMODULE},
     um::winnt::LPCWSTR,
@@ -38,7 +38,7 @@ pub trait HashFunction {
 
     /// Generic digest algorithm that takes an array of [`u8`],
     /// and return an array of [`u8`] with a size of [OUTPUT_SIZE](#associatedconstant.OUTPUT_SIZE),
-    /// also known as the digest length. For example, a [SHA256](https://docs.rs/sha2-const/0.1.1/sha2_const/) 
+    /// also known as the digest length. For example, a [SHA256](https://docs.rs/sha2-const/0.1.1/sha2_const/)
     /// implementation would use an [OUTPUT_SIZE](#associatedconstant.OUTPUT_SIZE) of 32.
     fn digest(data: &[u8]) -> [u8; Self::OUTPUT_SIZE];
 }
@@ -52,19 +52,20 @@ pub struct ApiHashResolver<H> {
 
 impl<H: HashFunction> ApiHashResolver<H>
 where
-    [(); H::OUTPUT_SIZE]: ,
+    [(); H::OUTPUT_SIZE]:,
 {
     /// Creates a new API hash resolver structure.
-    /// 
-    /// This automatically resolves 
+    ///
+    /// This automatically resolves
     /// [LoadLibraryW](https://docs.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-loadlibraryw/)
     /// in Kernel32.dll to be used in the future by the resolution functions.
     pub fn new() -> Self {
         let load_library = unsafe {
-            std::mem::transmute::<ULONG_PTR, fn(LPCWSTR) -> HMODULE>(
+            core::mem::transmute::<ULONG_PTR, fn(LPCWSTR) -> HMODULE>(
                 ApiHashResolver::<H>::resolve(
-                    ApiHashResolver::<H>::get_module_base("KERNEL32.DLL").unwrap(),
-                    H::digest("LoadLibraryW".as_bytes()),
+                    ApiHashResolver::<H>::get_module_base(obfstr::obfwide!("KERNEL32.DLL"))
+                        .unwrap(),
+                    H::digest(obfstr::obfbytes!(b"LoadLibraryW\0")),
                 )
                 .unwrap(),
             )
@@ -75,19 +76,19 @@ where
         }
     }
 
-    /// A function that will resolve a module and function name hash 
+    /// A function that will resolve a module and function name hash
     /// into a [ULONG_PTR](https://docs.rs/winapi/0.3.9/winapi/shared/basetsd/type.ULONG_PTR.html) ([`usize`]).
-    /// 
+    ///
     /// To then use this function, it will have to be transmuted
     /// into a function pointer with with the correct signature.
-    /// See the [std::mem::transmute examples](https://doc.rust-lang.org/stable/std/mem/fn.transmute.html#examples)
+    /// See the [core::mem::transmute examples](https://doc.rust-lang.org/stable/std/mem/fn.transmute.html#examples)
     /// or the [api_call](macro.api_call.html) macro for more information.
     pub unsafe fn resolve_fn(
         &self,
-        module_name: &[u8],
+        module_name: &[u16],
         hash: [u8; H::OUTPUT_SIZE],
     ) -> Result<ULONG_PTR, ()> {
-        let module: HMODULE = (self.load_library)(ToWide::to_wide_null(&std::str::from_utf8(module_name).unwrap()).as_ptr());
+        let module: HMODULE = (self.load_library)(module_name.as_ptr());
         ApiHashResolver::<H>::resolve(module, hash)
     }
 
@@ -117,19 +118,25 @@ where
         Err(())
     }
 
-    unsafe fn get_module_base(module: &str) -> Result<HMODULE, ()> {
+    unsafe fn get_module_base(module: &[u16]) -> Result<HMODULE, ()> {
         use crate::util::module_entry_list::ModuleEntryList;
+
         use ntapi::winapi_local::um::winnt::NtCurrentTeb;
-        use std::ffi::OsString;
 
         for entry in ModuleEntryList::new(
             &mut (*(*(*(NtCurrentTeb())).ProcessEnvironmentBlock).Ldr).InMemoryOrderModuleList,
         ) {
-            let entry_name: OsString = FromWide::from_wide_ptr_null(entry.BaseDllName.Buffer);
+            let wide = entry.BaseDllName.Buffer;
 
-            if module == entry_name.to_string_lossy().into_owned() {
-                return Ok(entry.DllBase as HMODULE);
+            for i in 0.. {
+                if *wide.offset(i) == 0 {
+                    let wide_slice = core::slice::from_raw_parts(wide, i as usize);
+                    if module == wide_slice {
+                        return Ok(entry.DllBase as HMODULE);
+                    }
+                }
             }
+            unreachable!()
         }
 
         Err(())

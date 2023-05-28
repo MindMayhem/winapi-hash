@@ -1,6 +1,5 @@
 pub mod image_export_directory;
 pub mod module_entry_list;
-pub mod wide;
 
 #[doc(hidden)]
 #[macro_export]
@@ -19,16 +18,16 @@ macro_rules! infer_type {
     };
 }
 
-/// Macro that will automaically hash your function string, 
+/// Macro that will automaically hash your function string,
 /// resolve and transmute the function, and finally call it.
-/// 
+///
 /// This function will panic when the function cannot be resolved.
 #[macro_export]
 macro_rules! api_call {
     ($resolver:expr, $alg:ty, $mod:literal -> $fn:literal ($($arg:expr),* $(,)?)) => {{
         const FN_HASH: [u8; <$alg>::OUTPUT_SIZE] = <$alg>::digest($fn.as_bytes());
         let function: fn($(infer_type!($arg)),*) -> _ = unsafe {
-            std::mem::transmute($resolver.resolve_fn($mod.as_bytes(), FN_HASH).unwrap())
+            core::mem::transmute($resolver.resolve_fn($mod.as_bytes(), FN_HASH).unwrap())
         };
         function($($arg),*)
     }};

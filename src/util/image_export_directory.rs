@@ -24,7 +24,7 @@ impl ExportDirectoryList {
 }
 
 impl Iterator for ExportDirectoryList {
-    type Item = (ULONG_PTR, String);
+    type Item = (ULONG_PTR, &'static str);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index > self.exp_dir.NumberOfNames {
@@ -36,7 +36,7 @@ impl Iterator for ExportDirectoryList {
             let exp_names = to_va!(self.handle, self.exp_dir.AddressOfNames) as PDWORD;
             let exp_ords = to_va!(self.handle, self.exp_dir.AddressOfNameOrdinals) as PWORD;
 
-            let fn_name = std::ffi::CStr::from_ptr(to_va!(
+            let fn_name = core::ffi::CStr::from_ptr(to_va!(
                 self.handle,
                 *exp_names.add(self.index as usize)
             ) as LPCSTR)
@@ -50,7 +50,7 @@ impl Iterator for ExportDirectoryList {
 
             self.index += 1;
 
-            Some((fn_ptr, fn_name.to_string()))
+            Some((fn_ptr, fn_name))
         }
     }
 }

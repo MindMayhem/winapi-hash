@@ -18,6 +18,7 @@ or on [0xf0x's blog](https://neil-fox.github.io/Anti-analysis-using-api-hashing/
 #![allow(incomplete_features)]
 #![warn(missing_docs)]
 #![no_std]
+#![no_main]
 //#![warn(rustdoc::missing_doc_code_examples)]
 
 pub use winapi;
@@ -63,9 +64,8 @@ where
         let load_library = unsafe {
             core::mem::transmute::<ULONG_PTR, fn(LPCWSTR) -> HMODULE>(
                 ApiHashResolver::<H>::resolve(
-                    ApiHashResolver::<H>::get_module_base(obfstr::obfwide!("KERNEL32.DLL"))
-                        .unwrap(),
-                    H::digest(obfstr::obfbytes!(b"LoadLibraryW\0")),
+                    ApiHashResolver::<H>::get_module_base(obfstr::wide!("KERNEL32.DLL")).unwrap(),
+                    H::digest(b"LoadLibraryW\0"),
                 )
                 .unwrap(),
             )
